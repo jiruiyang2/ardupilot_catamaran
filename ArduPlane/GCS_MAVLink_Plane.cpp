@@ -212,7 +212,7 @@ void GCS_MAVLINK_Plane::send_nav_controller_output() const
         const Vector3f &targets = quadplane.attitude_control->get_att_target_euler_cd();
 
         const Vector2f& curr_pos = quadplane.inertial_nav.get_position_xy_cm();
-        const Vector2f& target_pos = quadplane.pos_control->get_pos_target_cm().xy().tofloat();
+        const Vector2f& target_pos = quadplane.pos_control->get_pos_target_NEU_cm().xy().tofloat();
         const Vector2f error = (target_pos - curr_pos) * 0.01;
 
         mavlink_msg_nav_controller_output_send(
@@ -222,7 +222,7 @@ void GCS_MAVLINK_Plane::send_nav_controller_output() const
             targets.z * 0.01,
             degrees(error.angle()),
             MIN(error.length(), UINT16_MAX),
-            (plane.control_mode != &plane.mode_qstabilize) ? quadplane.pos_control->get_pos_error_z_cm() * 0.01 : 0,
+            (plane.control_mode != &plane.mode_qstabilize) ? quadplane.pos_control->get_pos_error_U_cm() * 0.01 : 0,
             plane.airspeed_error * 100,  // incorrect units; see PR#7933
             quadplane.wp_nav->crosstrack_error());
         return;
@@ -397,7 +397,7 @@ void GCS_MAVLINK_Plane::send_pid_tuning()
     }
 #if HAL_QUADPLANE_ENABLED
     if (g.gcs_pid_mask & TUNING_BITS_ACCZ && plane.quadplane.in_vtol_mode()) {
-        pid_info = &plane.quadplane.pos_control->get_accel_z_pid().get_pid_info();
+        pid_info = &plane.quadplane.pos_control->get_accel_U_pid().get_pid_info();
         send_pid_info(pid_info, PID_TUNING_ACCZ, pid_info->actual);
     }
 #endif
@@ -506,16 +506,16 @@ bool GCS_MAVLINK_Plane::handle_guided_request(AP_Mission::Mission_Command &cmd)
   handle a request to change current WP altitude. This happens via a
   callback from handle_mission_item()
  */
-void GCS_MAVLINK_Plane::handle_change_alt_request(AP_Mission::Mission_Command &cmd)
+void GCS_MAVLINK_Plane::handle_change_alt_request(Location &location)
 {
-    plane.fix_terrain_WP(cmd.content.location, __LINE__);
+    plane.fix_terrain_WP(location, __LINE__);
 
-    if (cmd.content.location.terrain_alt) {
-        plane.next_WP_loc.set_alt_cm(cmd.content.location.alt, Location::AltFrame::ABOVE_TERRAIN);
+    if (location.terrain_alt) {
+        plane.next_WP_loc.set_alt_cm(location.alt, Location::AltFrame::ABOVE_TERRAIN);
     } else {
         // convert to absolute alt
         float abs_alt_m;
-        if (cmd.content.location.get_alt_m(Location::AltFrame::ABSOLUTE, abs_alt_m)) {
+        if (location.get_alt_m(Location::AltFrame::ABSOLUTE, abs_alt_m)) {
             plane.next_WP_loc.set_alt_m(abs_alt_m, Location::AltFrame::ABSOLUTE);
         }
     }
@@ -644,6 +644,24 @@ MAV_RESULT GCS_MAVLINK_Plane::handle_command_int_do_reposition(const mavlink_com
         return MAV_RESULT_ACCEPTED;
     }
     return MAV_RESULT_FAILED;
+}
+
+MAV_RESULT GCS_MAVLINK_Plane::handle_command_int_DO_CHANGE_ALTITUDE(const mavlink_command_int_t &packet)
+{
+    const float alt = packet.param1;
+    MAV_FRAME mav_frame = (MAV_FRAME)packet.param2;
+    Location::AltFrame alt_frame;
+    if (!mavlink_coordinate_frame_to_location_alt_frame(mav_frame, alt_frame)) {
+        return MAV_RESULT_DENIED;
+    }
+    Location loc {
+        0,
+        0,
+        int32_t(alt * 100),  // m -> cm
+        alt_frame,
+    };
+    handle_change_alt_request(loc);
+    return MAV_RESULT_ACCEPTED;
 }
 
 #if AP_PLANE_OFFBOARD_GUIDED_SLEW_ENABLED
@@ -777,6 +795,9 @@ MAV_RESULT GCS_MAVLINK_Plane::handle_command_int_packet(const mavlink_command_in
 
     case MAV_CMD_DO_REPOSITION:
         return handle_command_int_do_reposition(packet);
+
+    case MAV_CMD_DO_CHANGE_ALTITUDE:
+        return handle_command_int_DO_CHANGE_ALTITUDE(packet);
 
 #if AP_PLANE_OFFBOARD_GUIDED_SLEW_ENABLED
     // special 'slew-enabled' guided commands here... for speed,alt, and direction commands
@@ -1167,17 +1188,17 @@ void GCS_MAVLINK_Plane::handle_set_position_target_global_int(const mavlink_mess
         }
 
         // Unexpectedly, the mask is expecting "ones" for dimensions that should
-        // be IGNORNED rather than INCLUDED.  See mavlink documentation of the
+        // be IGNORED rather than INCLUDED.  See mavlink documentation of the
         // SET_POSITION_TARGET_GLOBAL_INT message, type_mask field.
-        const uint16_t alt_mask = 0b1111111111111011; // (z mask at bit 3)
-            
-        AP_Mission::Mission_Command cmd = {0};
-        
-        if (pos_target.type_mask & alt_mask)
-        {
-            const int32_t alt_cm = pos_target.alt * 100;
-            cmd.content.location.set_alt_cm(alt_cm, frame);
-            handle_change_alt_request(cmd);
+        const bool alt_ignore = (pos_target.type_mask & POSITION_TARGET_TYPEMASK_Z_IGNORE);
+        if (!alt_ignore) {
+            Location loc {
+                0,  // lat
+                0,  // lng
+                int32_t(pos_target.alt * 100),  // m -> cm
+                frame,
+            };
+            handle_change_alt_request(loc);
         }
     }
 
@@ -1233,7 +1254,7 @@ int16_t GCS_MAVLINK_Plane::high_latency_target_altitude() const
     const QuadPlane &quadplane = plane.quadplane;
     //return units are m
     if (quadplane.show_vtol_view()) {
-        return (plane.control_mode != &plane.mode_qstabilize) ? 0.01 * (global_position_current.alt + quadplane.pos_control->get_pos_error_z_cm()) : 0;
+        return (plane.control_mode != &plane.mode_qstabilize) ? 0.01 * (global_position_current.alt + quadplane.pos_control->get_pos_error_U_cm()) : 0;
     }
 #endif
     return 0.01 * (global_position_current.alt + plane.calc_altitude_error_cm());
