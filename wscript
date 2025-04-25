@@ -9,6 +9,7 @@ import json
 import fnmatch
 sys.path.insert(0, 'Tools/ardupilotwaf/')
 sys.path.insert(0, 'Tools/scripts/')
+custom_targets = ['catamaran_dbg']
 
 import ardupilotwaf
 import boards
@@ -17,6 +18,17 @@ import build_options
 
 from waflib import Build, ConfigSet, Configure, Context, Utils
 from waflib.Configure import conf
+
+def build_catamaran_dbg(ctx):
+    # only recurse into ArduBoat if building catamaran_dbg
+    ctx.recurse('ArduBoat')
+from waflib import Build
+
+
+# Register our custom command
+class CatamaranDbgBuildContext(Build.BuildContext):    
+    cmd = 'catamaran_dbg'
+    fun = 'build_catamaran_dbg'
 
 # Ref: https://stackoverflow.com/questions/40590192/getting-an-error-attributeerror-module-object-has-no-attribute-run-while
 try:
@@ -674,7 +686,8 @@ def configure(cfg):
 
     # add in generated flags
     cfg.env.CXXFLAGS += ['-include', 'ap_config.h']
-
+    cfg.env.CXXFLAGS += ['-D_POSIX_C_SOURCE=199309L']
+    
     cfg.remove_target_list()
     _collect_autoconfig_files(cfg)
 
@@ -907,18 +920,25 @@ def _load_pre_build(bld):
         brd.pre_build(bld)    
 
 def build(bld):
+    if bld.env.PROJECT == 'catamaran_dbg':
+        bld.recurse('ArduBoat')
+    else:
+        bld.recurse('ArduCopter')
+        bld.recurse('ArduPlane')
+        bld.recurse('ArduBoat')
+
     config_hash = Utils.h_file(bld.bldnode.make_node('ap_config.h').abspath())
     bld.env.CCDEPS = config_hash
     bld.env.CXXDEPS = config_hash
 
     bld.post_mode = Build.POST_LAZY
-
     bld.load('ardupilotwaf')
 
     bld.env.AP_LIBRARIES_OBJECTS_KW.update(
         use=['mavlink'],
         cxxflags=['-include', 'ap_config.h'],
     )
+    
 
     _load_pre_build(bld)
 
@@ -1015,3 +1035,41 @@ class RsyncContext(LocalInstallContext):
             self.fatal('Destination for rsync not defined. Either pass --rsync-dest here or during configuration.')
 
         tg.post()
+def build_catamaran_dbg(ctx):
+    ctx.recurse('ArduBoat')
+    ctx.program(
+        name='catamaran_dbg',
+        target='bin/catamaran_dbg',
+        source=['ArduBoat/catamaran.cpp'],
+        includes=[
+            'ArduBoat',
+            'build/sitl/libraries/GCS_MAVLink/include',
+            'modules/mavlink/include',
+            'modules/mavlink/include/mavlink',
+            'modules/mavlink/include/mavlink/v2.0',
+            'modules/mavlink/include/mavlink/v2.0/ardupilotmega',
+        ],
+        use=[
+            'GCS_MAVLink',
+            'AP_HAL_SITL',
+            'AP_Periph',
+            'AP_VectorControl',
+            'AC_PID',
+            'AP_Math',
+            'AP_Scheduler',
+            'sitl_boat',
+        ],
+        features='cxx cxxprogram',
+    )
+
+# Register the custom command
+
+
+
+
+
+
+
+
+
+
