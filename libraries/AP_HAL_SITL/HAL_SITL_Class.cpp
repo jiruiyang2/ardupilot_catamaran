@@ -33,7 +33,7 @@
 #include <AP_InternalError/AP_InternalError.h>
 #include <AP_Logger/AP_Logger.h>
 #include <AP_RCProtocol/AP_RCProtocol_config.h>
-
+#include "mavlink_globals.h"
 using namespace HALSITL;
 
 HAL_SITL& hal_sitl = (HAL_SITL&)AP_HAL::get_HAL_mutable();

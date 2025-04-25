@@ -191,4 +191,5 @@ template <typename T> void BIT_CLEAR (T& value, uint8_t bitnumber) noexcept {
 #ifndef NEW_NOTHROW
 #define NEW_NOTHROW new(std::nothrow)
 #endif
+#include "AP_HAL_SITL/comm_send_ch.h"
 

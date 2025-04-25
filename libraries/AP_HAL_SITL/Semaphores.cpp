@@ -1,9 +1,22 @@
+#define _POSIX_C_SOURCE 199309L
+#include <time.h>        // <--- Direct include here too
+#include <sys/time.h>    // <--- For good measure
+#include <stdarg.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <fcntl.h>
+
 #include <AP_HAL/AP_HAL.h>
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_SITL
 
 #include "Semaphores.h"
 #include "Scheduler.h"
+
+
+
 
 extern const AP_HAL::HAL& hal;
 

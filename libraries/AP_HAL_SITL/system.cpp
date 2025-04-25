@@ -1,3 +1,5 @@
+#include <time.h>
+#include <AP_Common/time.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <sys/stat.h>

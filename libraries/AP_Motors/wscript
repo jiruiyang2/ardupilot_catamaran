@@ -1,0 +1,20 @@
+def build(ctx):
+    ctx.objects(
+        target='AP_Motors',
+        features='cxx',
+        includes=['.'],
+        source=[
+            'AP_MotorsUGV.cpp',
+            'AP_MotorsUGV_Differential.cpp',
+            'AP_MotorsUGV_SkidSteer.cpp',
+            'AP_MotorsUGV_Catamaran.cpp',  # <-- your custom motor file
+            'AP_MotorsUGV_Vector.cpp',
+            'AP_MotorsUGV_Omni3.cpp',
+            'AP_MotorsUGV_Omni4.cpp',
+            'AP_MotorsUGV_SkidSteerAckerman.cpp',
+            'AP_MotorsUGV_DualMotorDiff.cpp',
+            'AP_MotorsUGV_SteeringAckerman.cpp',
+            'AP_MotorsUGV_SteeringAckermanTwoServo.cpp',
+            'AP_MotorsUGV_SkidSteerSteering.cpp',
+        ],
+    )

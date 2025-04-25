@@ -1,0 +1,8 @@
+# libraries/AP_VectorControl/wscript
+
+def build(bld):
+    bld.stlib(
+        target='AP_VectorControl',
+        source=['AP_VectorControl.cpp'],
+        includes=['.'],
+    )

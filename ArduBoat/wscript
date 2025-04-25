@@ -1,0 +1,65 @@
+
+# ArduBoat/wscript
+def build_catamaran_dbg(bld):
+    bld.program(
+        name='catamaran_dbg',
+        target='bin/catamaran_dbg',
+        source=[
+            'catamaran.cpp',
+            'mavlink_globals.cpp',
+            'hal_sitl_instance.cpp',
+
+            # Add these required SITL HAL sources:
+            '../libraries/AP_HAL_SITL/HAL_SITL_Class.cpp',
+            '../libraries/AP_HAL_SITL/AnalogIn.cpp',
+            '../libraries/AP_HAL_SITL/GPIO.cpp',
+            '../libraries/AP_HAL_SITL/RCInput.cpp',
+            '../libraries/AP_HAL_SITL/RCOutput.cpp',
+            '../libraries/AP_HAL_SITL/Scheduler.cpp',
+            '../libraries/AP_HAL_SITL/Storage.cpp',
+            '../libraries/AP_HAL_SITL/UARTDriver.cpp',
+            '../libraries/AP_HAL_SITL/Semaphores.cpp',
+            '../libraries/AP_HAL_SITL/SITL_State.cpp',
+            '../libraries/AP_HAL_SITL/SITL_State_common.cpp',
+            '../libraries/AP_HAL_SITL/SITL_cmdline.cpp',
+            '../libraries/AP_HAL_SITL/Util.cpp',
+            '../libraries/AP_HAL_SITL/system.cpp',
+        ],
+        features='cxx cxxprogram',
+        cxxflags=[
+            '-Wno-address-of-packed-member',
+            '-D_POSIX_C_SOURCE=199309L',            
+        ],
+
+        includes=[
+            '.',  # ArduBoat dir
+            '../libraries',
+            '../libraries/AP_HAL',
+            '../libraries/AP_HAL_SITL',
+            '../libraries/AP_Common',
+            '../modules',
+            'build/sitl/libraries/GCS_MAVLink/include',
+            '../modules/mavlink/include',
+            '../modules/mavlink/include/mavlink/v2.0',
+            '../modules/mavlink/include/mavlink/v2.0/ardupilotmega',
+        ],
+        use=[
+            'sitl_boat',
+            'GCS_MAVLink',
+            'AP_HAL_SITL',
+            'AP_Periph',
+            'AP_VectorControl',
+            'AC_PID',
+            'AP_Math',
+            'AP_Scheduler',
+        ],
+    )
+
+def build(bld):
+    build_catamaran_dbg(bld)
+
+
+
+
+
+

@@ -1,2 +1,16 @@
 def configure(cfg):
     cfg.env.DOUBLE_PRECISION_LIBRARIES['AP_HAL_SITL'] = True
+
+def build(bld):
+    bld.objects(
+        target='objs_AP_HAL_SITL_extra',
+        features='cxx',
+        source=[
+            'comm_send_ch.cpp',   # <--- your missing file
+        ],
+        includes=[
+            '.',                  # current folder
+            '../../libraries',    # general libraries
+        ],
+    )
+

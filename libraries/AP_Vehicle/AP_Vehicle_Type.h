@@ -47,7 +47,11 @@
 */
 #define APM_BUILD_COPTER_OR_HELI (APM_BUILD_TYPE(APM_BUILD_ArduCopter) || APM_BUILD_TYPE(APM_BUILD_Heli))
 
-#else 
-#define APM_BUILD_TYPE(type) @Invalid_use_of_APM_BUILD_TYPE
-#define APM_BUILD_COPTER_OR_HELI @Invalid_use_of_APM_BUILD_COPTER_OR_HELI
+#else
+#ifndef APM_BUILD_TYPE
+#define APM_BUILD_TYPE(type) 0
+#endif
+#ifndef APM_BUILD_COPTER_OR_HELI
+#define APM_BUILD_COPTER_OR_HELI 0
+#endif
 #endif
