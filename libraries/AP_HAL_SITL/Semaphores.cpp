@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 199309L
+#define _POSIX_C_SOURCE 200809L
 #include <time.h>        // <--- Direct include here too
 #include <sys/time.h>    // <--- For good measure
 #include <stdarg.h>

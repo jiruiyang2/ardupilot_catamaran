@@ -1,0 +1,15 @@
+def build(bld):
+    # Example 1: C++ helper tool
+    bld.program(
+    target='vector_thrust_debugger',
+    source='vector_thrust_debugger.cpp',
+    features='cxx cxxprogram',
+    includes=['.'],
+    use=[]  # 👈 Add this line to avoid AttributeError
+)
+    # Example 2: Python script installer (e.g., for SITL automation or logging)
+    bld.install_files('${BINDIR}', 'autonomous_logger.py', chmod=0o755)
+
+def configure(conf):
+    conf.check_python_version((3,6,0))
+

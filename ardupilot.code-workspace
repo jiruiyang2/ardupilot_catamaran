@@ -1,0 +1,36 @@
+{
+  "folders": [
+    {
+      "path": "."
+    },
+    {
+      "path": "ArduRover"
+    },
+    {
+      "path": "libraries"
+    },
+    {
+      "path": "Tools"
+    }
+  ],
+  "settings": {
+    "terminal.integrated.defaultProfile.linux": "bash",
+    "files.exclude": {
+      "**/build": true,
+      "**/.git": true,
+      "**/__pycache__": true
+    },
+    "search.exclude": {
+      "**/build": true
+    },
+    "editor.tabSize": 4
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-vscode.cpptools",
+      "ms-python.python",
+      "eamodio.gitlens",
+      "ms-vscode.cmake-tools"
+    ]
+  }
+}

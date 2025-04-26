@@ -1,4 +1,10 @@
 #include "time.h"
+#include <ctime>
+
+std::time_t ap_mktime(const std::tm *t)
+{
+    return std::mktime(const_cast<std::tm*>(t));
+}
 
 /*
   mktime replacement from Samba

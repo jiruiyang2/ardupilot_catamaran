@@ -686,8 +686,7 @@ def configure(cfg):
 
     # add in generated flags
     cfg.env.CXXFLAGS += ['-include', 'ap_config.h']
-    cfg.env.CXXFLAGS += ['-D_POSIX_C_SOURCE=199309L']
-    
+
     cfg.remove_target_list()
     _collect_autoconfig_files(cfg)
 

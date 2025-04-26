@@ -612,9 +612,9 @@ def _process_build_command(bld):
     bld.options.program_group.extend(program_group_list)
 
 def build_command(name,
-                   targets=None,
-                   program_group_list=[],
-                   doc='build shortcut'):
+                  targets=None,
+                  program_group_list=[],
+                  doc='build shortcut'):
     _build_commands[name] = dict(
         targets=targets,
         program_group_list=program_group_list,
@@ -732,5 +732,50 @@ This option is only supported on macOS versions of clang.
         help='''Build using the gcc undefined behaviour sanitizer and abort on error''')
     
 def build(bld):
-    bld.add_pre_fun(_process_build_command)
-    bld.add_pre_fun(_select_programs_from_group)
+    bld.recurse('Tools')
+    bld.recurse('libraries')
+    bld.recurse('modules')
+    bld.recurse('ArduBoat')  # include your custom catamaran build here
+
+    if bld.cmd == 'catamaran':
+        bld.program(
+            target='bin/catamaran',
+            source='ArduBoat/catamaran.cpp',
+            features='cxx cxxprogram',
+            includes=['.'],
+            use=['AP_Periph', 'AP_HAL_SITL']
+        )
+
+    bld.recurse('APMtools')
+
+# DO NOT reload ardupilotwaf inside itself — this causes recursion
+# This block is unnecessary and should be removed:
+# if getattr(bld, '_loaded_ardupilotwaf', False) is False:
+#     bld._loaded_ardupilotwaf = True
+#     bld.load('ardupilotwaf')  # <- This causes infinite recursion
+
+
+    
+    
+
+
+    
+
+
+    
+def catamaran(ctx):
+    ctx.recurse('Tools')
+    ctx.recurse('libraries')
+    ctx.recurse('modules')
+    ctx.recurse('ArduBoat')  # Or wherever your vehicle lives
+    ctx.recurse('APMtools')
+
+    ctx.program(
+        target='bin/catamaran',
+        source=['ArduBoat/catamaran.cpp'],  # Adjust if you have a custom main
+        features='cxx cxxprogram',
+        includes=['.'],
+        use=['AP_Periph', 'AP_HAL_SITL']
+    )
+build_command('catamaran', targets='catamaran', doc='build catamaran custom target')
+
