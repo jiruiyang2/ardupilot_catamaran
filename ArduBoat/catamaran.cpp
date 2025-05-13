@@ -1,8 +1,8 @@
 // catamaran.cpp
 #include <AP_Common/AP_FWVersion.h>
 #include <AP_HAL/AP_HAL.h>
-#include <mavlink/common/mavlink.h>
-#include <mavlink/common/mavlink_helpers.h>
+#include <mavlink.h>
+#include <mavlink_helpers.h>
 #include "mavlink_globals.h"
 #include "AP_Motors/AP_MotorsUGV_Catamaran.h"
 

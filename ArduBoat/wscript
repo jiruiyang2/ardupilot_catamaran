@@ -35,7 +35,6 @@ def build(bld):
     bld.ap_program(
         program_name='catamaran_dbg',
         program_groups= ['bin','boat'],
-        ap_vehicle     = 'boat',
         source=[ 'catamaran.cpp', 'mavlink_globals.cpp'],
         includes = ['modules/mavlink/include'],
         use=[ 'GCS_MAVLink', lib_name ],

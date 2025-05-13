@@ -1,7 +1,7 @@
 #pragma once
 #include <AP_Common/AP_FWVersion.h>
-#include <mavlink/common/mavlink.h>
-#include <mavlink/common/mavlink_helpers.h>
+#include <mavlink.h>
+#include <mavlink_helpers.h>
 
 
 

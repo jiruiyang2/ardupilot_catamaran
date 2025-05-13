@@ -1,336 +1,515 @@
+/*
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+/*
+   This is the ArduRover firmware. It was originally derived from
+   ArduPlane by Jean-Louis Naudin (JLN), and then rewritten after the
+   AP_HAL merge by Andrew Tridgell
+
+   Maintainer: Randy Mackay, Grant Morphett
+
+   Authors:    Doug Weibel, Jose Julio, Jordi Munoz, Jason Short, Andrew Tridgell, Randy Mackay, Pat Hickey, John Arne Birkeland, Olivier Adler, Jean-Louis Naudin, Grant Morphett
+
+   Thanks to:  Chris Anderson, Michael Oborne, Paul Mather, Bill Premerlani, James Cohen, JB from rotorFX, Automatik, Fefenin, Peter Meister, Remzibi, Yury Smirnov, Sandro Benigno, Max Levine, Roberto Navoni, Lorenz Meier
+
+   APMrover alpha version tester: Franco Borasio, Daniel Chapelat...
+
+   Please contribute your ideas! See https://ardupilot.org/dev for details
+*/
+
 #include "Boat.h"
 
-static void failsafe_check_static()
-{
-    boat.failsafe_check();
-}
+#define FORCE_VERSION_H_INCLUDE
+#include "version.h"
+#undef FORCE_VERSION_H_INCLUDE
 
-void Boat::init_ardupilot()
-{
-    // initialise notify system
-    notify.init();
-    notify_mode(control_mode);
+const AP_HAL::HAL& hal = AP_HAL::get_HAL();
 
-    battery.init();
+#define SCHED_TASK(func, _interval_ticks, _max_time_micros, _priority) SCHED_TASK_CLASS(Boat, &boat, func, _interval_ticks, _max_time_micros, _priority)
 
-#if AP_RPM_ENABLED
-    // Initialise RPM sensor
-    rpm_sensor.init();
-#endif
+/*
+  scheduler table - all regular tasks should be listed here.
 
-#if AP_RSSI_ENABLED
-    rssi.init();
-#endif
+  All entries in this table must be ordered by priority.
 
-    g2.windvane.init(serial_manager);
+  This table is interleaved with the table in AP_Vehicle to determine
+  the order in which tasks are run.  Convenience methods SCHED_TASK
+  and SCHED_TASK_CLASS are provided to build entries in this structure:
 
-    // init baro before we start the GCS, so that the CLI baro test works
-    barometer.init();
+SCHED_TASK arguments:
+ - name of static function to call
+ - rate (in Hertz) at which the function should be called
+ - expected time (in MicroSeconds) that the function should take to run
+ - priority (0 through 255, lower number meaning higher priority)
 
-    // setup telem slots with serial ports
-    gcs().setup_uarts();
+SCHED_TASK_CLASS arguments:
+ - class name of method to be called
+ - instance on which to call the method
+ - method to call on that instance
+ - rate (in Hertz) at which the method should be called
+ - expected time (in MicroSeconds) that the method should take to run
+ - priority (0 through 255, lower number meaning higher priority)
 
-#if OSD_ENABLED
-    osd.init();
-#endif
-
-    // initialise compass
-    AP::compass().set_log_bit(MASK_LOG_COMPASS);
-    AP::compass().init();
-
-#if AP_AIRSPEED_ENABLED
-    airspeed.set_log_bit(MASK_LOG_IMU);
-#endif
-
+  scheduler table - all regular tasks are listed here, along with how
+  often they should be called (in Hz) and the maximum time
+  they are expected to take (in microseconds)
+ */
+const AP_Scheduler::Task Boat::scheduler_tasks[] = {
+    //         Function name,          Hz,     us,
+    SCHED_TASK(read_radio,             50,    200,   3),
+    SCHED_TASK(ahrs_update,           400,    400,   6),
 #if AP_RANGEFINDER_ENABLED
-    // initialise rangefinder
-    rangefinder.set_log_rfnd_bit(MASK_LOG_RANGEFINDER);
-    rangefinder.init(ROTATION_NONE);
+    SCHED_TASK(read_rangefinders,      50,    200,   9),
 #endif
-
-#if HAL_PROXIMITY_ENABLED
-    // init proximity sensor
-    g2.proximity.init();
-#endif
-
-#if AP_BEACON_ENABLED
-    // init beacons used for non-gps position estimation
-    g2.beacon.init();
-#endif
-
-    // and baro for EKF
-    barometer.set_log_baro_bit(MASK_LOG_IMU);
-    barometer.calibrate();
-
-    // Do GPS init
-    gps.set_log_gps_bit(MASK_LOG_GPS);
-    gps.init();
-
-    ins.set_log_raw_bit(MASK_LOG_IMU_RAW);
-
-    init_rc_in();            // sets up rc channels deadzone
-    g2.motors.init(get_frame_type());        // init motors including setting servo out channels ranges
-    AP::srv().enable_aux_servos();
-
-    // init wheel encoders
-    g2.wheel_encoder.init();
-
-#if HAL_TORQEEDO_ENABLED
-    // init torqeedo motor driver
-    g2.torqeedo.init();
-#endif
-
 #if AP_OPTICALFLOW_ENABLED
-    // initialise optical flow sensor
-    optflow.init(MASK_LOG_OPTFLOW);
-#endif      // AP_OPTICALFLOW_ENABLED
-
-#if AP_RELAY_ENABLED
-    relay.init();
+    SCHED_TASK_CLASS(AP_OpticalFlow,      &boat.optflow,          update,         200, 160,  11),
 #endif
-
-#if HAL_MOUNT_ENABLED
-    // initialise camera mount
-    camera_mount.init();
+    SCHED_TASK(update_current_mode,   400,    200,  12),
+    SCHED_TASK(set_servos,            400,    200,  15),
+    SCHED_TASK_CLASS(AP_GPS,              &boat.gps,              update,         50,  300,  18),
+    SCHED_TASK_CLASS(AP_Baro,             &boat.barometer,        update,         10,  200,  21),
+#if AP_BEACON_ENABLED
+    SCHED_TASK_CLASS(AP_Beacon,           &boat.g2.beacon,        update,         50,  200,  24),
 #endif
-
-#if AP_CAMERA_ENABLED
-    // initialise camera
-    camera.init();
+#if HAL_PROXIMITY_ENABLED
+    SCHED_TASK_CLASS(AP_Proximity,        &boat.g2.proximity,     update,         50,  200,  27),
 #endif
-
+    SCHED_TASK_CLASS(AP_WindVane,         &boat.g2.windvane,      update,         20,  100,  30),
+    SCHED_TASK(update_wheel_encoder,   50,    200,  36),
+    SCHED_TASK(update_compass,         10,    200,  39),
+#if HAL_LOGGING_ENABLED
+    SCHED_TASK(update_logging1,        10,    200,  45),
+    SCHED_TASK(update_logging2,        10,    200,  48),
+#endif
+    SCHED_TASK_CLASS(GCS,                 (GCS*)&boat._gcs,       update_receive,                    400,    500,  51),
+    SCHED_TASK_CLASS(GCS,                 (GCS*)&boat._gcs,       update_send,                       400,   1000,  54),
+    SCHED_TASK_CLASS(RC_Channels,         (RC_Channels*)&boat.g2.rc_channels, read_mode_switch,        7,    200,  57),
+    SCHED_TASK_CLASS(RC_Channels,         (RC_Channels*)&boat.g2.rc_channels, read_aux_all,           10,    200,  60),
+    SCHED_TASK_CLASS(AP_BattMonitor,      &boat.battery,          read,           10,  300,  63),
+#if AP_SERVORELAYEVENTS_ENABLED
+    SCHED_TASK_CLASS(AP_ServoRelayEvents, &boat.ServoRelayEvents, update_events,  50,  200,  66),
+#endif
 #if AC_PRECLAND_ENABLED
-    // initialise precision landing
-    init_precland();
+    SCHED_TASK(update_precland,      400,     50,  70),
 #endif
-
-    /*
-      setup the 'main loop is dead' check. Note that this relies on
-      the RC library being initialised.
-     */
-    hal.scheduler->register_timer_failsafe(failsafe_check_static, 1000);
-
-    // initialize SmartRTL
-    g2.smart_rtl.init();
-
-#if AP_OAPATHPLANNER_ENABLED
-    // initialise object avoidance
-    g2.oa.init();
+#if AP_RPM_ENABLED
+    SCHED_TASK_CLASS(AP_RPM,              &boat.rpm_sensor,       update,         10,  100,  72),
 #endif
-
-    set_mode(mode_initializing, ModeReason::INITIALISED);
-
-    startup_INS();
-
-#if AP_MISSION_ENABLED
-    // initialise mission library
-    mode_auto.mission.init();
-#if HAL_LOGGING_ENABLED
-    mode_auto.mission.set_log_start_mission_item_bit(MASK_LOG_CMD);
+#if HAL_MOUNT_ENABLED
+    SCHED_TASK_CLASS(AP_Mount,            &boat.camera_mount,     update,         50,  200,  75),
 #endif
-#endif
-
-    // initialise AP_Logger library
-#if HAL_LOGGING_ENABLED
-    logger.setVehicle_Startup_Writer(
-        FUNCTOR_BIND(&boat, &Boat::Log_Write_Vehicle_Startup_Messages, void)
-        );
-#endif
-
-    Mode *initial_mode = mode_from_mode_num((enum Mode::Number)g.initial_mode.get());
-    if (initial_mode == nullptr) {
-        initial_mode = &mode_initializing;
-    }
-    set_mode(*initial_mode, ModeReason::INITIALISED);
-
-    // initialise rc channels
-    rc().convert_options(RC_Channel::AUX_FUNC::ARMDISARM_UNUSED, RC_Channel::AUX_FUNC::ARMDISARM);
-    rc().convert_options(RC_Channel::AUX_FUNC::SAVE_TRIM, RC_Channel::AUX_FUNC::TRIM_TO_CURRENT_SERVO_RC);
-    rc().init();
-
-    boat.g2.sailboat.init();
-
-    // boat should loiter after completing a mission to avoid drifting off
-    if (is_boat()) {
-        boat.g2.mis_done_behave.set_default(uint8_t(ModeAuto::DoneBehaviour::LOITER));
-    }
-
-    // flag that initialisation has completed
-    initialised = true;
-}
-
-// update the ahrs flyforward setting which can allow
-// the vehicle's movements to be used to estimate heading
-void Boat::update_ahrs_flyforward()
-{
-    bool flyforward = false;
-
-    // boats never use movement to estimate heading
-    if (!is_boat()) {
-        // throttle threshold is 15% or 1/2 cruise throttle
-        bool throttle_over_thresh = g2.motors.get_throttle() > MIN(g.throttle_cruise * 0.50f, 15.0f);
-        // desired speed threshold of 1m/s
-        bool desired_speed_over_thresh = g2.attitude_control.speed_control_active() && (g2.attitude_control.get_desired_speed() > 0.5f);
-        if (throttle_over_thresh || (is_positive(g2.motors.get_throttle()) && desired_speed_over_thresh)) {
-            uint32_t now = AP_HAL::millis();
-            // if throttle over threshold start timer
-            if (flyforward_start_ms == 0) {
-                flyforward_start_ms = now;
-            }
-            // if throttle over threshold for 2 seconds set flyforward to true
-            flyforward = (now - flyforward_start_ms > 2000);
-        } else {
-            // reset timer
-            flyforward_start_ms = 0;
-        }
-    }
-
-    ahrs.set_fly_forward(flyforward);
-}
-
-// Check if this mode can be entered from the GCS
-bool Boat::gcs_mode_enabled(const Mode::Number mode_num) const
-{
-    // List of modes that can be blocked, index is bit number in parameter bitmask
-    static const uint8_t mode_list [] {
-        (uint8_t)Mode::Number::MANUAL,
-        (uint8_t)Mode::Number::ACRO,
-        (uint8_t)Mode::Number::STEERING,
-        (uint8_t)Mode::Number::LOITER,
-        (uint8_t)Mode::Number::FOLLOW,
-        (uint8_t)Mode::Number::SIMPLE,
-        (uint8_t)Mode::Number::CIRCLE,
-        (uint8_t)Mode::Number::AUTO,
-        (uint8_t)Mode::Number::RTL,
-        (uint8_t)Mode::Number::SMART_RTL,
-        (uint8_t)Mode::Number::GUIDED,
-#if MODE_DOCK_ENABLED
-        (uint8_t)Mode::Number::DOCK
-#endif
-    };
-
-    return !block_GCS_mode_change((uint8_t)mode_num, mode_list, ARRAY_SIZE(mode_list));
-}
-
-bool Boat::set_mode(Mode &new_mode, ModeReason reason)
-{
-    if (control_mode == &new_mode) {
-        // don't switch modes if we are already in the correct mode.
-        return true;
-    }
-
-    // Check if GCS mode change is disabled via parameter
-    if ((reason == ModeReason::GCS_COMMAND) && !gcs_mode_enabled((Mode::Number)new_mode.mode_number())) {
-        gcs().send_text(MAV_SEVERITY_NOTICE,"Mode change to %s denied, GCS entry disabled (FLTMODE_GCSBLOCK)", new_mode.name4());
-        return false;
-    }
-
-    Mode &old_mode = *control_mode;
-    if (!new_mode.enter()) {
-        // Log error that we failed to enter desired flight mode
-        LOGGER_WRITE_ERROR(LogErrorSubsystem::FLIGHT_MODE,
-                           LogErrorCode(new_mode.mode_number()));
-        gcs().send_text(MAV_SEVERITY_WARNING, "Flight mode change failed");
-        return false;
-    }
-
-    control_mode = &new_mode;
-
-#if AP_FENCE_ENABLED
-    // pilot requested flight mode change during a fence breach indicates pilot is attempting to manually recover
-    // this flight mode change could be automatic (i.e. fence, battery, GPS or GCS failsafe)
-    // but it should be harmless to disable the fence temporarily in these situations as well
-    fence.manual_recovery_start();
-#endif
-
 #if AP_CAMERA_ENABLED
-    camera.set_is_auto_mode(control_mode->mode_number() == Mode::Number::AUTO);
+    SCHED_TASK_CLASS(AP_Camera,           &boat.camera,           update,         50,  200,  78),
 #endif
-
-    old_mode.exit();
-
-    control_mode_reason = reason;
+    SCHED_TASK(gcs_failsafe_check,     10,    200,  81),
+#if AP_FENCE_ENABLED
+    SCHED_TASK(fence_check,            10,    200,  84),
+#endif
+    SCHED_TASK(ekf_check,              10,    100,  87),
+    SCHED_TASK_CLASS(ModeSmartRTL,        &boat.mode_smartrtl,    save_position,   3,  200,  90),
+    SCHED_TASK(one_second_loop,         1,   1500,  96),
+#if HAL_SPRAYER_ENABLED
+    SCHED_TASK_CLASS(AC_Sprayer,          &boat.g2.sprayer,       update,          3,  90,  99),
+#endif
 #if HAL_LOGGING_ENABLED
-    logger.Write_Mode((uint8_t)control_mode->mode_number(), control_mode_reason);
+    SCHED_TASK_CLASS(AP_Logger,           &boat.logger,           periodic_tasks, 50,  300, 108),
 #endif
-    gcs().send_message(MSG_HEARTBEAT);
+    SCHED_TASK_CLASS(AP_InertialSensor,   &boat.ins,              periodic,      400,  200, 111),
+#if HAL_LOGGING_ENABLED
+    SCHED_TASK_CLASS(AP_Scheduler,        &boat.scheduler,        update_logging, 0.1, 200, 114),
+#endif
+#if HAL_BUTTON_ENABLED
+    SCHED_TASK_CLASS(AP_Button,           &boat.button,           update,          5,  200, 117),
+#endif
+    SCHED_TASK(crash_check,            10,    200, 123),
+    SCHED_TASK(cruise_learn_update,    50,    200, 126),
+#if AP_ROVER_ADVANCED_FAILSAFE_ENABLED
+    SCHED_TASK(afs_fs_check,           10,    200, 129),
+#endif
+};
 
-    notify_mode(control_mode);
+
+void Boat::get_scheduler_tasks(const AP_Scheduler::Task *&tasks,
+                                uint8_t &task_count,
+                                uint32_t &log_bit)
+{
+    tasks = &scheduler_tasks[0];
+    task_count = ARRAY_SIZE(scheduler_tasks);
+    log_bit = MASK_LOG_PM;
+}
+
+constexpr int8_t Boat::_failsafe_priorities[7];
+
+Boat::Boat(void) :
+    AP_Vehicle(),
+    param_loader(var_info),
+    modes(&g.mode1),
+    control_mode(&mode_initializing)
+{
+}
+
+#if AP_SCRIPTING_ENABLED || AP_EXTERNAL_CONTROL_ENABLED
+// set target location (for use by external control and scripting)
+bool Boat::set_target_location(const Location& target_loc)
+{
+    // exit if vehicle is not in Guided mode or Auto-Guided mode
+    if (!control_mode->in_guided_mode()) {
+        return false;
+    }
+
+    return mode_guided.set_desired_location(target_loc);
+}
+#endif //AP_SCRIPTING_ENABLED || AP_EXTERNAL_CONTROL_ENABLED
+
+#if AP_SCRIPTING_ENABLED
+// set target velocity (for use by scripting)
+bool Boat::set_target_velocity_NED(const Vector3f& vel_ned)
+{
+    // exit if vehicle is not in Guided mode or Auto-Guided mode
+    if (!control_mode->in_guided_mode()) {
+        return false;
+    }
+
+    // convert vector length into speed
+    const float target_speed_m = safe_sqrt(sq(vel_ned.x) + sq(vel_ned.y));
+
+    // convert vector direction to target yaw
+    const float target_yaw_cd = degrees(atan2f(vel_ned.y, vel_ned.x)) * 100.0f;
+
+    // send target heading and speed
+    mode_guided.set_desired_heading_and_speed(target_yaw_cd, target_speed_m);
+
     return true;
 }
 
-bool Boat::set_mode(const uint8_t new_mode, ModeReason reason)
+// set steering and throttle (-1 to +1) (for use by scripting)
+bool Boat::set_steering_and_throttle(float steering, float throttle)
 {
-    static_assert(sizeof(Mode::Number) == sizeof(new_mode), "The new mode can't be mapped to the vehicles mode number");
-    return boat.set_mode(static_cast<Mode::Number>(new_mode), reason);
-}
-
-bool Boat::set_mode(Mode::Number new_mode, ModeReason reason)
-{
-    Mode *mode = boat.mode_from_mode_num(new_mode);
-    if (mode == nullptr) {
-        notify_no_such_mode((uint8_t)new_mode);
+    // exit if vehicle is not in Guided mode or Auto-Guided mode
+    if (!control_mode->in_guided_mode()) {
         return false;
     }
-    return boat.set_mode(*mode, reason);
+
+    // set steering and throttle
+    mode_guided.set_steering_and_throttle(steering, throttle);
+    return true;
 }
 
-void Boat::startup_INS(void)
+// get steering and throttle (-1 to +1) (for use by scripting)
+bool Boat::get_steering_and_throttle(float& steering, float& throttle)
 {
-    gcs().send_text(MAV_SEVERITY_INFO, "Beginning INS calibration. Do not move vehicle");
-    hal.scheduler->delay(100);
-
-    ahrs.init();
-    // say to EKF that boat only move by going forward
-    ahrs.set_fly_forward(true);
-    ahrs.set_vehicle_class(AP_AHRS::VehicleClass::GROUND);
-
-    ins.init(scheduler.get_loop_rate_hz());
-    ahrs.reset();
+    steering = g2.motors.get_steering() / 4500.0;
+    throttle = g2.motors.get_throttle() * 0.01;
+    return true;
 }
 
-// update notify with mode change
-void Boat::notify_mode(const Mode *mode)
+// set desired turn rate (degrees/sec) and speed (m/s). Used for scripting
+bool Boat::set_desired_turn_rate_and_speed(float turn_rate, float speed)
 {
-    AP_Notify::flags.autopilot_mode = mode->is_autopilot_mode();
-    notify.flags.flight_mode = (uint8_t)mode->mode_number();
-    notify.set_flight_mode_str(mode->name4());
+    // exit if vehicle is not in Guided mode or Auto-Guided mode
+    if (!control_mode->in_guided_mode()) {
+        return false;
+    }
+
+    // set turn rate and speed. Turn rate is expected in centidegrees/s and speed in meters/s
+    mode_guided.set_desired_turn_rate_and_speed(turn_rate * 100.0f, speed);
+    return true;
+}
+
+// set desired nav speed (m/s). Used for scripting.
+bool Boat::set_desired_speed(float speed)
+{
+    return control_mode->set_desired_speed(speed);
+}
+
+// get control output (for use in scripting)
+// returns true on success and control_value is set to a value in the range -1 to +1
+bool Boat::get_control_output(AP_Vehicle::ControlOutput control_output, float &control_value)
+{
+    switch (control_output) {
+    case AP_Vehicle::ControlOutput::Roll:
+        control_value = constrain_float(g2.motors.get_roll(), -1.0f, 1.0f);
+        return true;
+    case AP_Vehicle::ControlOutput::Pitch:
+        control_value = constrain_float(g2.motors.get_pitch(), -1.0f, 1.0f);
+        return true;
+    case AP_Vehicle::ControlOutput::Walking_Height:
+        control_value = constrain_float(g2.motors.get_walking_height(), -1.0f, 1.0f);
+        return true;
+    case AP_Vehicle::ControlOutput::Throttle:
+        control_value = constrain_float(g2.motors.get_throttle() * 0.01f, -1.0f, 1.0f);
+        return true;
+    case AP_Vehicle::ControlOutput::Yaw:
+        control_value = constrain_float(g2.motors.get_steering() / 4500.0f, -1.0f, 1.0f);
+        return true;
+    case AP_Vehicle::ControlOutput::Lateral:
+        control_value = constrain_float(g2.motors.get_lateral() * 0.01f, -1.0f, 1.0f);
+        return true;
+    case AP_Vehicle::ControlOutput::MainSail:
+        control_value = constrain_float(g2.motors.get_mainsail() * 0.01f, -1.0f, 1.0f);
+        return true;
+    case AP_Vehicle::ControlOutput::WingSail:
+        control_value = constrain_float(g2.motors.get_wingsail() * 0.01f, -1.0f, 1.0f);
+        return true;
+    default:
+        return false;
+    }
+    return false;
+}
+
+// returns true if mode supports NAV_SCRIPT_TIME mission commands
+bool Boat::nav_scripting_enable(uint8_t mode)
+{
+    return mode == (uint8_t)mode_auto.mode_number();
+}
+
+// lua scripts use this to retrieve the contents of the active command
+bool Boat::nav_script_time(uint16_t &id, uint8_t &cmd, float &arg1, float &arg2, int16_t &arg3, int16_t &arg4)
+{
+    if (control_mode != &mode_auto) {
+        return false;
+    }
+
+    return mode_auto.nav_script_time(id, cmd, arg1, arg2, arg3, arg4);
+}
+
+// lua scripts use this to indicate when they have complete the command
+void Boat::nav_script_time_done(uint16_t id)
+{
+    if (control_mode != &mode_auto) {
+        return;
+    }
+
+    return mode_auto.nav_script_time_done(id);
+}
+#endif // AP_SCRIPTING_ENABLED
+
+// update AHRS system
+void Boat::ahrs_update()
+{
+    arming.update_soft_armed();
+
+    // AHRS may use movement to calculate heading
+    update_ahrs_flyforward();
+
+    ahrs.update();
+
+    // update position
+    have_position = ahrs.get_location(current_loc);
+
+    // set home from EKF if necessary and possible
+    if (!ahrs.home_is_set()) {
+        if (!set_home_to_current_location(false)) {
+            // ignore this failure
+        }
+    }
+
+    // if using the EKF get a speed update now (from accelerometers)
+    Vector3f velocity;
+    if (ahrs.get_velocity_NED(velocity)) {
+        ground_speed = velocity.xy().length();
+    } else if (gps.status() >= AP_GPS::GPS_OK_FIX_3D) {
+        ground_speed = ahrs.groundspeed();
+    }
+
+#if HAL_LOGGING_ENABLED
+    if (should_log(MASK_LOG_ATTITUDE_FAST)) {
+        Log_Write_Attitude();
+        Log_Write_Sail();
+    }
+
+    if (should_log(MASK_LOG_IMU)) {
+        AP::ins().Write_IMU();
+    }
+
+    if (should_log(MASK_LOG_VIDEO_STABILISATION)) {
+        ahrs.write_video_stabilisation();
+    }
+#endif
 }
 
 /*
-  check a digital pin for high,low (1/0)
+  check for GCS failsafe - 10Hz
  */
-uint8_t Boat::check_digital_pin(uint8_t pin)
+void Boat::gcs_failsafe_check(void)
 {
-    // ensure we are in input mode
-    hal.gpio->pinMode(pin, HAL_GPIO_INPUT);
+    if (g.fs_gcs_enabled == FS_GCS_DISABLED) {
+        // gcs failsafe disabled
+        return;
+    }
 
-    // enable pullup
-    hal.gpio->write(pin, 1);
+    const uint32_t gcs_last_seen_ms = gcs().sysid_mygcs_last_seen_time_ms();
+    if (gcs_last_seen_ms == 0) {
+        // we've never seen the GCS, so we never failsafe for not seeing it
+        return;
+    }
 
-    return hal.gpio->read(pin);
+    // calc time since last gcs update
+    // note: this only looks at the heartbeat from the device id set by gcs().sysid_gcs()
+    const uint32_t last_gcs_update_ms = millis() - gcs_last_seen_ms;
+    const uint32_t gcs_timeout_ms = uint32_t(constrain_float(g2.fs_gcs_timeout * 1000.0f, 0.0f, UINT32_MAX));
+
+    const bool do_failsafe = last_gcs_update_ms >= gcs_timeout_ms ? true : false;
+
+    failsafe_trigger(FAILSAFE_EVENT_GCS, "GCS", do_failsafe);
 }
 
 #if HAL_LOGGING_ENABLED
 /*
-  should we log a message type now?
+  log some key data - 10Hz
  */
-bool Boat::should_log(uint32_t mask)
+void Boat::update_logging1(void)
 {
-    return logger.should_log(mask);
-}
-#endif
+    if (should_log(MASK_LOG_ATTITUDE_MED) && !should_log(MASK_LOG_ATTITUDE_FAST)) {
+        Log_Write_Attitude();
+        Log_Write_Sail();
+    }
 
-// returns true if vehicle is a boat
-// this affects whether the vehicle tries to maintain position after reaching waypoints
-bool Boat::is_boat() const
+    if (should_log(MASK_LOG_THR)) {
+        Log_Write_Throttle();
+#if AP_BEACON_ENABLED
+        g2.beacon.log();
+#endif
+    }
+
+    if (should_log(MASK_LOG_NTUN)) {
+        Log_Write_Nav_Tuning();
+        if (g2.pos_control.is_active()) {
+            g2.pos_control.write_log();
+            logger.Write_PID(LOG_PIDN_MSG, g2.pos_control.get_vel_pid().get_pid_info_x());
+            logger.Write_PID(LOG_PIDE_MSG, g2.pos_control.get_vel_pid().get_pid_info_y());
+        }
+    }
+
+#if HAL_PROXIMITY_ENABLED
+    if (should_log(MASK_LOG_RANGEFINDER)) {
+        g2.proximity.log();
+    }
+#endif
+}
+
+/*
+  log some key data - 10Hz
+ */
+void Boat::update_logging2(void)
 {
-    return ((enum frame_class)g2.frame_class.get() == FRAME_BOAT);
+    if (should_log(MASK_LOG_STEERING)) {
+        Log_Write_Steering();
+    }
+
+    if (should_log(MASK_LOG_RC)) {
+        Log_Write_RC();
+        g2.wheel_encoder.Log_Write();
+    }
+
+    if (should_log(MASK_LOG_IMU)) {
+        AP::ins().Write_Vibration();
+#if HAL_GYROFFT_ENABLED
+        gyro_fft.write_log_messages();
+#endif
+    }
+#if HAL_MOUNT_ENABLED
+    if (should_log(MASK_LOG_CAMERA)) {
+        camera_mount.write_log();
+    }
+#endif
+}
+#endif  // HAL_LOGGING_ENABLED
+
+/*
+  once a second events
+ */
+void Boat::one_second_loop(void)
+{
+    set_control_channels();
+
+    // cope with changes to aux functions
+    AP::srv().enable_aux_servos();
+
+    // update notify flags
+    AP_Notify::flags.pre_arm_check = arming.pre_arm_checks(false);
+    AP_Notify::flags.pre_arm_gps_check = true;
+    AP_Notify::flags.armed = arming.is_armed();
+    AP_Notify::flags.flying = hal.util->get_soft_armed();
+
+    // attempt to update home position and baro calibration if not armed:
+    if (!hal.util->get_soft_armed()) {
+        update_home();
+    }
+
+    // need to set "likely flying" when armed to allow for compass
+    // learning to run
+    set_likely_flying(hal.util->get_soft_armed());
+
+    // send latest param values to wp_nav
+    g2.wp_nav.set_turn_params(g2.turn_radius, g2.motors.have_skid_steering());
+    g2.pos_control.set_turn_params(g2.turn_radius, g2.motors.have_skid_steering());
+    g2.wheel_rate_control.set_notch_sample_rate(AP::scheduler().get_filtered_loop_rate_hz());
+
+#if AP_STATS_ENABLED
+    // Update stats "flying" time
+    AP::stats()->set_flying(g2.motors.active());
+#endif
 }
 
-#include <AP_Avoidance/AP_Avoidance.h>
-#include <AP_ADSB/AP_ADSB.h>
-#if HAL_ADSB_ENABLED
-// dummy method to avoid linking AP_Avoidance
-AP_Avoidance *AP::ap_avoidance() { return nullptr; }
-#endif
+void Boat::update_current_mode(void)
+{
+    // check for emergency stop
+    if (SRV_Channels::get_emergency_stop()) {
+        // relax controllers, motor stopping done at output level
+        g2.attitude_control.relax_I();
+    }
+
+    control_mode->update();
+}
+
+// vehicle specific waypoint info helpers
+bool Boat::get_wp_distance_m(float &distance) const
+{
+    // see GCS_MAVLINK_Rover::send_nav_controller_output()
+    if (!boat.control_mode->is_autopilot_mode()) {
+        return false;
+    }
+    distance = control_mode->get_distance_to_destination();
+    return true;
+}
+
+// vehicle specific waypoint info helpers
+bool Boat::get_wp_bearing_deg(float &bearing) const
+{
+    // see GCS_MAVLINK_Rover::send_nav_controller_output()
+    if (!boat.control_mode->is_autopilot_mode()) {
+        return false;
+    }
+    bearing = control_mode->wp_bearing();
+    return true;
+}
+
+// vehicle specific waypoint info helpers
+bool Boat::get_wp_crosstrack_error_m(float &xtrack_error) const
+{
+    // see GCS_MAVLINK_Rover::send_nav_controller_output()
+    if (!boat.control_mode->is_autopilot_mode()) {
+        return false;
+    }
+    xtrack_error = control_mode->crosstrack_error();
+    return true;
+}
+
+
+Boat boat;
+AP_Vehicle& vehicle = boat;
+
+AP_HAL_MAIN_CALLBACKS(&boat);
