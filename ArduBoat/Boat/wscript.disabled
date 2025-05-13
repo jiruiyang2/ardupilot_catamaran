@@ -1,0 +1,42 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
+# This wscript builds the Boat (catamaran) target and its supporting libraries
+
+def build(bld):
+    # Name of our vehicle and library prefix
+    vehicle = 'boat'
+    lib_name = vehicle + '_libs'
+
+    # Build the vehicle-specific library bundle
+    bld.ap_stlib(
+        name=lib_name,
+        ap_vehicle=vehicle,
+        ap_libraries=bld.ap_common_vehicle_libraries() + [
+            'APM_Control',
+            'AP_Mount',
+            'AP_Navigation',
+            'AR_WPNav',
+            'AP_AdvancedFailsafe',
+            'AP_WheelEncoder',
+            'AP_SmartRTL',
+            'AC_AttitudeControl',
+            'AP_LTM_Telem',
+            'AP_Devo_Telem',
+            'AP_WindVane',
+            'AR_Motors',
+            'AP_Torqeedo',
+            'AC_PrecLand',
+            'AP_IRLock',
+        ],
+    )
+
+    # Build the boat executable, grouping it under "boat" for ./waf boat
+    bld.ap_program(
+        program_name='catamaran_dbg',
+        program_groups= ['bin','boat'],
+        source=[ 'catamaran.cpp', 'mavlink_globals.cpp'],
+        includes = ['modules/mavlink/include'],
+        use=[ 'GCS_MAVLink', lib_name ],
+    )
+

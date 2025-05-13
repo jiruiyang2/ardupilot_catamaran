@@ -623,6 +623,15 @@ def build_command(name,
     class context_class(Build.BuildContext):
         cmd = name
     context_class.__doc__ = doc
+# -------------------------------------------------------------------
+# register the “boat” command so waf knows about it
+build_command(
+    name               = 'boat',
+    targets            = None,
+    program_group_list = ['boat'],     # must match the group you used in ArduBoat/wscript
+    doc                = 'build the boat (ArduBoat) programs'
+)
+
 
 def _select_programs_from_group(bld):
     groups = bld.options.program_group

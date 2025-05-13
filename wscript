@@ -508,6 +508,12 @@ def _collect_autoconfig_files(cfg):
                 cfg.files.append(p)
 
 def configure(cfg):
+
+    cfg.env.append_value('CXXFLAGS', [
+        '-DAPM_BUILD_boat=1',
+        '-Wno-error=undef',
+        '-Wno-error=macro-redefined',
+    ])
     if is_ci:
         print(f"::group::Waf Configure")
 	# we need to enable debug mode when building for gconv, and force it to sitl
@@ -522,6 +528,9 @@ def configure(cfg):
                 break
         
     cfg.env.BOARD = cfg.options.board
+    # if we're building “boat” (SITL catamaran), make sure all libs get that define
+    if cfg.env.BOARD == 'boat':
+        cfg.define('APM_BUILD_boat', 1)
     cfg.env.DEBUG = cfg.options.debug
     cfg.env.DEBUG_SYMBOLS = cfg.options.debug_symbols
     cfg.env.COVERAGE = cfg.options.coverage
@@ -734,7 +743,7 @@ def list_ap_periph_boards(ctx):
 def ap_periph_boards(ctx):
     return boards.get_ap_periph_boards()
 
-vehicles = ['antennatracker', 'blimp', 'copter', 'heli', 'plane', 'rover', 'sub']
+vehicles = ['antennatracker', 'blimp', 'copter', 'heli', 'plane', 'rover', 'sub','boat']
 
 def generate_tasklist(ctx, do_print=True):
     boardlist = boards.get_boards_names()
@@ -1050,3 +1059,8 @@ class RsyncContext(LocalInstallContext):
             self.fatal('Destination for rsync not defined. Either pass --rsync-dest here or during configuration.')
 
         tg.post()
+
+# — register our Boat build command —
+def build_boat(bld):
+    bld.recurse('ArduBoat/Boat')
+
